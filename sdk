@@ -48,7 +48,7 @@ load() {
 
 	[[ $# -gt 2 ]] && release="$3"
 
-	req=(os arch)
+	req=(os)
 	ckreq || return 1
 
 	os_map=(

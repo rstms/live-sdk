@@ -16,7 +16,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this source code. If not, see <http://www.gnu.org/licenses/>.
 
-arch="amd64"
 
 export PATH="$PATH:/usr/sbin:/sbin"
 
@@ -34,10 +33,7 @@ extra_packages+=(
 	squashfs-tools
 	xorriso
 	cryptsetup
-	firmware-linux
+#	firmware-linux # depends on **firmware-linux-nonfree** (and -free)
 )
 
-case "$arch" in
-i386)  extra_packages+=(linux-image-686) ;;
-amd64) extra_packages+=(linux-image-amd64) ;;
-esac
+

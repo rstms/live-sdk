@@ -37,7 +37,7 @@ blend_preinst() {
     cat <<EOF | sudo tee "$strapdir/add-user" >/dev/null
 #!/bin/sh
 useradd -s /bin/bash -m "${username}" || exit 1
-echo "${username}:${userpass} | chpasswd || exit 1
+echo "${username}:${userpass}" | chpasswd || exit 1
 EOF
     chroot-script -d add-user || { zerr; return 1; }
 
@@ -45,13 +45,13 @@ EOF
 
     sudo mkdir -p "$strapdir/extra_packages" || { zerr; return 1; }
     sudo cp -fv "$blend_release_path"/custom_debs/*.deb "$strapdir/extra_packages" || { zerr; return 1; }
-    cat << EOF
+    cat << EOF | sudo tee "$strapdir/install-custpackages" >/dev/null
 #!/bin/sh
-cd custom-packages
+cd extra_packages
 dpkg -i *_all.deb *_${arch}.deb
 apt-get -f install
 cd - >/dev/null
-rm -rf custom-packages
+rm -rf extra_packages
 EOF
     chroot-script -d install-custpackages || { zerr; return 1; }
 }
@@ -63,10 +63,10 @@ blend_postinst() {
 
 	notice "executing $blend_name postinst"
 
-#	[[ -n "$MKEFI" ]] && {
-#		iso_make_efi
-#		iso_write_grub_cfg
-#	}
+	[[ -n "$MKEFI" ]] && {
+		iso_make_efi
+		iso_write_grub_cfg
+	}
 
 	pushd "$strapdir"
 		sudo rsync -avx --no-o --no-g "$blend_release_path"/rootfs_overlay/* . || { zerr; return 1; }
@@ -95,7 +95,7 @@ iso_write_isolinux_cfg() {
 # from similar scripts by Colin Watson and Patrick J. Volkerding.
 iso_make_efi() {
 	fn iso_make_efi
-	req=(workdir efi_work)
+	req=(workdir efi_work strapdir)
 	ckreq || return 1
 
 	notice "creating efi boot files"
@@ -104,23 +104,28 @@ iso_make_efi() {
 	# for initial grub.cfg
 	mkdir -p "$tempdir"/boot/grub
 
+	if [ "$arch" = amd64 ] ; then
+		grubarch="x86_64-efi"
+	elif [ "$arch" = i386 ] ; then
+		grubarch="i386-efi"
+	fi
 
 	cat >"$tempdir"/boot/grub/grub.cfg <<EOF
 search --file --set=root /isolinux/isolinux.cfg
 set prefix=(\$root)/boot/grub
-source \$prefix/x86_64-efi/grub.cfg
+source \$prefix/${grubarch}/grub.cfg
 EOF
 
 	mkdir -p "$efi_work"
 	pushd "$efi_work"
 
 	# start with empty directories.
-	rm -rf boot; mkdir -p boot/grub/x86_64-efi
+	rm -rf boot; mkdir -p boot/grub/${grubarch}
 	rm -rf efi ; mkdir -p efi/boot
 
 	# second grub.cfg file
-	for i in $(find $strapdir/usr/lib/grub/x86_64-efi -name 'part_*.mod'); do
-		print "insmod $(basename $i)" >> boot/grub/x86_64-efi/grub.cfg
+	for i in $(find $strapdir/usr/lib/grub/${grubarch} -name 'part_*.mod'); do
+		print "insmod $(basename $i)" >> boot/grub/${grubarch}/grub.cfg
 	done
 
 	# Additional modules so we don't boot in blind mode.
@@ -138,10 +143,10 @@ EOF
 		gfxterm
 	)
 	for i in $efimods; do
-		print "insmod $i" >> boot/grub/x86_64-efi/grub.cfg
+		print "insmod $i" >> boot/grub/${grubarch}/grub.cfg
 	done
 
-	print "source /boot/grub/grub.cfg" >> boot/grub/x86_64-efi/grub.cfg
+	print "source /boot/grub/grub.cfg" >> boot/grub/${grubarch}/grub.cfg
 
 	pushd "$tempdir"
 		# make a tarred "memdisk" to embed in the grub image
@@ -153,10 +158,17 @@ EOF
 				search iso9660 configfile normal memdisk tar cat \
 				part_msdos part_gpt fat ext2 ntfs ntfscomp hfsplus \
 				chain boot linux
+	
+		grub-mkimage -O "i386-efi" -m "memdisk" -o "bootia32.efi" \
+			-p '(memdisk)/boot/grub' \
+				search iso9660 configfile normal memdisk tar cat \
+				part_msdos part_gpt fat ext2 ntfs ntfscomp hfsplus \
+				chain boot linux
 	popd
 
 	# copy the grub image to efi/boot (to go later in the device's root)
 	cp "$tempdir"/bootx64.efi efi/boot
+	cp "$tempdir"/bootia32.efi efi/boot
 
 	# Do the boot image "boot/grub/efiboot.img"
 	dd if=/dev/zero of=boot/grub/efiboot.img bs=1K count=1440
@@ -166,9 +178,10 @@ EOF
 	sudo mount -o loop boot/grub/efiboot.img img-mnt
 	sudo mkdir -p img-mnt/efi/boot
 	sudo cp "$tempdir"/bootx64.efi img-mnt/efi/boot/
+	sudo cp "$tempdir"/bootia32.efi img-mnt/efi/boot/
 
 	# copy modules and font
-	cp $strapdir/usr/lib/grub/x86_64-efi/* boot/grub/x86_64-efi/
+	cp -r "$strapdir/usr/lib/grub/${grubarch}"/* "boot/grub/${grubarch}/"
 
 	# if this doesn't work try another font from the same place (grub's default, unicode.pf2, is much larger)
 	# Either of these will work, and they look the same to me. Unicode seems to work with qemu. -fsr
@@ -221,28 +234,35 @@ background_image /boot/grub/splash.png
 set menu_color_normal=white/black
 set menu_color_highlight=dark-gray/white
 set timeout=6
+play 480 440 1
 
-menuentry "${os}-live (${arch})" {
+menuentry "Devuan Live Minimal (std)" {
     set gfxpayload=keep
-    linux   /live/vmlinuz boot=live username=$username
+    linux   /live/vmlinuz boot=live noautologin vga=auto
     initrd  /live/initrd.img
 }
 
-menuentry "Other language" {
+menuentry "Devuan Live Minimal (access)" {
 	set gfxpayload=keep
-	linux /live/vmlinuz boot=live username=$username locales=it_IT.UTF-8 keyboard-layouts=it
+	linux /live/vmlinuz boot=live noautologin 4 vga=normal
 	initrd /live/initrd.img
 }
 
-menuentry "${os}-live (load to RAM)" {
+menuentry "Devuan Live Minimal (std-toram)" {
     set gfxpayload=keep
-    linux   /live/vmlinuz boot=live username=$username toram
+    linux   /live/vmlinuz boot=live noautologin vga=auto toram
     initrd  /live/initrd.img
 }
 
-menuentry "${os}-live (failsafe)" {
+menuentry "Devuan Live Minimal (access-toram)" {
+	set gfxpayload=keep
+	linux /live/vmlinuz boot=live noautologin 4 vga=normal toram
+	initrd /live/initrd.img
+}
+
+menuentry "Devuan Live Minimal (no probe)" {
     set gfxpayload=keep
-    linux   /live/vmlinuz boot=live username=$username noapic noapm nodma nomce nolapic nosmp vga=normal
+    linux   /live/vmlinuz boot=live noapic noapm nodma nomce nolapic nosmp vga=auto
     initrd  /live/initrd.img
 }
 
@@ -280,10 +300,6 @@ done
 chsh -s "${default_shell}" ${username}
 chown -R 1000:1000 /home/${username}
 
-# Not sure if this has been fixed (in devuan-baseconf?)
-mv /data/etc/apt/apt.conf.d/05disable-suggests /etc/apt/apt.conf.d/
-rm -rf /data
-
 rm -f /etc/fstab
 rm -f /etc/popularity-contest.conf
 rm -f /var/lib/dbus/machine-id
@@ -302,6 +318,11 @@ sed -i '/-updates/s/^/## /g' /etc/apt/sources.list
 ## replace pkgmaster with deb.devuan.org
 sed -i 's/pkgmaster/deb/g'
 
+# for amd64 only at this time (for bios/uefi compat)
+if ls /boot | grep amd64 ; then
+	apt-get download grub-pc
+	apt-get download grub-efi-ia32
+fi
 
 ## insert  service boot_beep
 insserv boot_beep
@@ -345,12 +366,6 @@ ln -s \${MICRO_INITRD} /initrd.img
 
 ## rm create_initrd.sh
 rm /create_initrd.sh
-
-## install additional packages
-
-cd /extra/custom-packages
-dpkg -i \$(find ./ -type f -name '*.deb')
-
 
 ## package list
 dpkg -l | awk '/^ii/ { print \$2 " " \$3 }' > /home/${username}/package_list

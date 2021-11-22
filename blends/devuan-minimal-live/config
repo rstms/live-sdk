@@ -6,8 +6,9 @@ arrs+=(custom_deb_packages)
 
 blend_name="devuan-minimal-live"
 
-release="beowulf"
-mirror="http://pkgmaster.devuan.org/merged"
+release="chimaera"
+version="4.0.0"
+mirror="http://deb.devuan.org/merged"
 section="main contrib non-free"
 
 username="devuan"
@@ -17,12 +18,28 @@ default_shell="/bin/bash"
 # comment to disable:
 #hookscripts="yes"
 
+arch="amd64"
+#arch="i386"
+
+case "$arch" in
+# for minimal-live
+i386)  extra_packages+=(linux-image-686) ;;
+
+# for desktop-live
+#i386)  extra_packages+=(linux-image-686-pae) ;;
+
+amd64) extra_packages+=(linux-image-amd64) ;;
+esac
+
 # uncomment to create uefi-bootable iso
-#MKEFI=1
-#efi_work="$BLENDPATH/efi-files"
+MKEFI=1
+efi_work="$BLENDPATH/efi-files"
 
 #grubversion="grub-pc"
-#grubversion="grub-efi-amd64"
+grubversion="grub-efi-amd64"
+
+# Uncomment for amd64 bios/uefi
+base_packages+=(grub-pc-bin grub-efi-ia32-bin efibootmgr)
 
 base_packages_option=(--no-install-recommends)
 extra_packages_option=(--no-install-recommends)

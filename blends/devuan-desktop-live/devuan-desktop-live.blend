@@ -43,13 +43,13 @@ EOF
 #
 #    sudo mkdir -p "$strapdir/extra_packages" || { zerr; return 1; }
 #    sudo cp -fv "$blend_release_path"/custom_debs/*.deb "$strapdir/extra_packages" || { zerr; return 1; }
-#    cat << EOF
+#    cat << EOF | sudo tee "$strapdir/install-custpackages" >/dev/null
 ##!/bin/sh
-#cd custom-packages
+#cd extra_packages
 #dpkg -i *_all.deb *_${arch}.deb
 #apt-get -f install
 #cd - >/dev/null
-#rm -rf custom-packages
+#rm -rf extra_packages
 #EOF
 #    chroot-script -d install-custpackages || { zerr; return 1; }
 }
@@ -127,25 +127,28 @@ prompt 0
 menu title devuan-live boot menu
 timeout 70
 menu background /isolinux/splash.png
-menu color title    * #C6C2C2 *
-menu color border   * #00000000 #00000000 none
-menu color sel      * #ffffffff #5F1A1A *
-menu color hotsel   1;7;37;40 #ffffffff #401111 *
-menu color tabmsg   * #D4D0D0 #00000000 *
-menu color cmdline  0 #D4D0D0 #00000000
-menu vshift 12
+
+menu color title	* #FFFFFFFF *
+menu color border	* #00000000 #00000000 none
+menu color sel         * #ffffff #1E4E6E *
+menu color hotsel      1;7;37;40 #DCDDDE #1E4E6E *
+menu color tabmsg	* #DCDDDE #00000000 *
+menu color cmdline 0 #DCDDDE #00000000
+menu color help		37;40 #ffdddd00 #00000000 none
+menu vshift 9
 menu rows 12
-# The command line must be at least one line from the help line.
-menu cmdlinerow 16
+#menu helpmsgrow 15
+#menu cmdlinerow 25
 menu timeoutrow 16
-menu tabmsgrow 18
+menu tabmsgrow 14
 menu tabmsg Press ENTER to boot or TAB to edit a menu entry
+
 
 label live
 	menu label ${os}-live (${arch})
 	menu default
 	linux /live/vmlinuz
-	append initrd=/live/initrd.img boot=live username=${username} apparmor=0
+	append initrd=/live/initrd.img boot=live username=${username} apparmor=0 
 
 label lang
 	menu label Other language (TAB to edit)
@@ -155,11 +158,11 @@ label lang
 label toram
 	menu label ${os}-live (${arch}) (load to RAM)
 	linux /live/vmlinuz
-	append initrd=/live/initrd.img boot=live username=${username} apparmor=0 toram 
+	append initrd=/live/initrd.img boot=live username=${username} toram apparmor=0 
 
 label failsafe
 	menu label ${os}-live (${arch}) (failsafe)
-	kernel /live/vmlinuz noapic noapm nodma nomce nolapic nosmp nomodeset vga=normal username=${username} apparmor=0
+	kernel /live/vmlinuz noapic noapm nodma nomce nolapic nosmp nomodeset vga=normal username=${username} apparmor=0 
 	append initrd=/live/initrd.img boot=live
 
 label memtest
@@ -172,8 +175,8 @@ EOF
 	notice "copying isolinux overlay"
 	sudo mkdir -p "$workdir"/binary/{live,isolinux}
 	sudo cp -rav "$blend_release_path"/isolinux-overlay/* "$workdir"/binary/isolinux/
-	sudo cp -av "$blend_release_path"/live-overlay/* "$workdir"/binary/live/
-	sudo cp -av "$blend_release_path"/docs "$workdir"/binary/
+#	sudo cp -av "$blend_release_path"/live-overlay/* "$workdir"/binary/live/
+#	sudo cp -av "$blend_release_path"/docs "$workdir"/binary/
 	#edit_initramfs
 #	[[ -n "$hookscripts" ]] && {
 #		sudo cp -av "$blend_release_path"/hooks "$workdir"/binary/live/
@@ -335,13 +338,13 @@ menuentry "Other language" {
 
 menuentry "${os}-live (load to RAM)" {
     set gfxpayload=keep
-    linux   /live/vmlinuz boot=live username=$username apparmor=0 toram 
+    linux   /live/vmlinuz boot=live username=$username toram apparmor=0 
     initrd  /live/initrd.img
 }
 
 menuentry "${os}-live (failsafe)" {
     set gfxpayload=keep
-    linux   /live/vmlinuz boot=live username=$username apparmor=0 noapic noapm nodma nomce nolapic nosmp vga=normal 
+    linux   /live/vmlinuz boot=live username=$username noapic noapm nodma nomce nolapic nosmp vga=normal apparmor=0 
     initrd  /live/initrd.img
 }
 
@@ -379,17 +382,10 @@ grep -q GRUB_THEME /etc/default/grub || {
 cp /splash.png /usr/lib/refractasnapshot/iso/isolinux/
 rm -f /splash.png
 
-# This has been fixed (in devuan-baseconf) in suites/ascii
-#rm -rf /data
-
 rm -f /etc/fstab
 rm -f /etc/popularity-contest.conf
 rm -f /vmlinuz.old
 rm -f /initrd.img.old
-
-# For ascii if no display manager is used. Maybe this should have a
-# contitional that's turned on/off in the config?
-# echo "needs_root_rights=yes" >> /etc/X11/Xwrapper.config
 
 # Disable contrib and non-free after installing firmware.
 sed -i 's/contrib//g' /etc/apt/sources.list
@@ -412,6 +408,7 @@ fi
 
 ## package list
 dpkg -l | awk '/^ii/ { print \$2 " " \$3 }' > /home/${username}/package_list
+chown 1000:1000 /home/${username}/package_list
 
 # Enable encryption (e.g. for live-usb with persistence)
 #sed -i 's/#CRYPTSETUP=/CRYPTSETUP=y/' /etc/cryptsetup-initramfs/conf-hook

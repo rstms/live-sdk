@@ -6,8 +6,8 @@ arrs+=(custom_deb_packages)
 
 blend_name="devuan-desktop-live_"
 
-release="beowulf"
-version="3.0.0"
+release="chimaera"
+version="4.0.0"
 
 username="devuan"
 userpass="devuan"
@@ -15,6 +15,20 @@ default_shell="/bin/bash"
 
 # comment to disable:
 #hookscripts="yes"
+
+#arch="amd64"
+arch="i386"
+
+case "$arch" in
+	# for minimal-live
+	#i386)  extra_packages+=(linux-image-686) ;;
+
+	# for desktop-live
+	i386)  extra_packages+=(linux-image-686-pae) ;;
+
+	amd64) extra_packages+=(linux-image-amd64) ;;
+esac
+
 
 # uncomment to create uefi-bootable iso
 MKEFI=1
