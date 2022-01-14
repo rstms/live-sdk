@@ -1,7 +1,7 @@
-DEVUAN BEOWULF DESKTOP-LIVE
+DEVUAN CHIMAERA DESKTOP-LIVE
 
 
-This is Devuan 3 (Beowulf) desktop-live.
+This is Devuan 4 (Chimaera) desktop-live.
 It contains the same package selection as the default desktop in the 
 regular installer isos, with the addition of a few packages for the live
 system, wireless firmware, a live-cd installer and remastering tool to 
@@ -39,8 +39,7 @@ default in the installed system.
 
 WIRELESS (NON-FREE) FIRMWARE 
 
-To set up wireless networking, use wicd network manager or run setnet.sh
-from a root terminal (or with sudo).
+To set up wireless networking, use network-manager or wpasupplicant.
 
 Wireless firmware is already installed. Most of the firmware packages 
 come from the non-free repository, however the non-free and contrib 
@@ -75,7 +74,6 @@ firmware-misc-nonfree
 +firmware-myricom
 +firmware-netxen
 firmware-qlogic
-firmware-ralink
 firmware-realtek
 firmware-ti-connectivity
 firmware-zd1211
@@ -102,8 +100,8 @@ document. (See /usr/lib/refractainstaller/readme.refractainstaller.txt
 or press Help from within the installer.)
 
 IMPORTANT NOTE: grub-efi-amd64 is installed. If you boot from bios, the
-installer will find the grub-pc package and ask if you want it copied
-and installed or if you would like to proceed without a bootloader. 
+installer will find the grub-pc package and ask if you want the 
+bootloader installed or if you would like to proceed without one. 
 
 If your hardware needs a 32-bit uefi bootloader with a 64-bit operating 
 system, install the grub-efi-ia32 package before running the installer. 
@@ -164,7 +162,7 @@ Please report bugs on the official Devuan Bug Tracking System:
 	https://bugs.devuan.org
 
 Support:
-IRC Channel on freenode.net: #devuan
+IRC Channel on libera.chat: #devuan
 Support forum: dev1galaxy.org
 
 
