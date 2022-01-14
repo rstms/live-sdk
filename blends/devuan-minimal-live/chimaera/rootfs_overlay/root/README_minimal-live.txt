@@ -1,6 +1,6 @@
-=== Devuan Beowulf minimal live ====
+=== Devuan Chimaera minimal live ====
 
-This image is a full-featured console-only live Devuan Beowulf system,
+This image is a full-featured console-only live Devuan Chimaera system,
 with tons of command-line and curses utilities and a special focus on
 accessibility. The system is a good starting point for a minimalist
 environment, a powerful solution for rescue tasks, and a useful tool to
@@ -12,7 +12,7 @@ The regular user is devuan/devuan. Become admin with root/toor.
 
 Designed and maintained by Vincenzo 'Katolaz' Nicosia
 Homepage: http://kalos.mine.nu
-Iso files built and signed by fsmithred (key id 0xA73823D3094C5620 on pgp.mit.e$
+Iso files built and signed by fsmithred (key id 0xA73823D3094C5620 on pgp.mit.edu
 
 =======================================
 
@@ -59,10 +59,10 @@ This image contains around 590 packages in total, and includes:
 
   - _Editors_: vim-tiny, zile (Emacs clone), nano
 
-  - _Networking_: bittornado, curl, edbrowse, fetchmail, ftp, irssi,
-    lftp, links2, mcabber, minicom, mosh, msmtp, mutt, netcat, nrss,
-    openssh-client, openssh-server, procmail, rsync, setnet, telnet,
-    tin, twidge, w3m, wget
+  - _Networking_: bittornado, ceni, curl, edbrowse, fetchmail, ftp, irssi,
+    lftp, links2, mcabber, minicom, mosh, msmtp, mutt, netcat, 
+    openssh-client, openssh-server, procmail, rsstail, rsync, setnet,
+    telnet, tin, twidge, w3m, wget
 
   - _Personal_productivity_: abook, aspell, calcurse, clex, dvtm,
     fbi/fbgs, fbterm, ghostscript, gpg, mc, parallel, sc, screen,
@@ -77,12 +77,12 @@ This image contains around 590 packages in total, and includes:
 
   - _Accessibility_: beep, brltty, espeak, espeakup, yasr
 
-  - _Multimedia_: caca-utils, hasciicam, imagemagick, jhead, moc,
-    radio, sox
-	
+  - _Multimedia_: caca-utils, fmtools, hasciicam, imagemagick, jhead,
+     moc, sox
+
   - _Miscellanea_: cmatrix, cowsay, figlet, fortune-mod, gpm,
-    termsaver, toilet, ttyrec
-	
+    toilet, ttyrec
+
 =======================================
 
 2) == Connecting to the Internet ==
@@ -163,6 +163,8 @@ I feel indebted with all the people in the DNG Mailing List who have
 provided feedback, suggestions, comments, and encouragement, and in
 particular: aitor_czr, Boruch Baum, fsmithred, golinux, David Hare,
 Irrwahn, Steve Litt, Daniel Reurich, Joel Roth, Ozi Traveller.
+
+ - KatolaZ
 
 Comments, suggestions, criticisms, and bug reports are welcome, and
 should be reported on the official Devuan Bug Tracking System:
