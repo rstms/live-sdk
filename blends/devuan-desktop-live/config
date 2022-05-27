@@ -16,8 +16,8 @@ default_shell="/bin/bash"
 # comment to disable:
 #hookscripts="yes"
 
-#arch="amd64"
-arch="i386"
+arch="amd64"
+#arch="i386"
 
 case "$arch" in
 	# for minimal-live
