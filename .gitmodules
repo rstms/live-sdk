@@ -1,3 +1,4 @@
 [submodule "lib/libdevuansdk"]
 	path = lib/libdevuansdk
-	url = https://github.com/parazyd/libdevuansdk
+	url = https://git.devuan.org/devuan-sdk/libdevuansdk.git
+	branch = master
