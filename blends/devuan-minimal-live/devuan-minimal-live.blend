@@ -94,6 +94,7 @@ iso_write_isolinux_cfg() {
 # uefi code borrowed and adapted from David Hare, who borrowed and adapted it
 # from similar scripts by Colin Watson and Patrick J. Volkerding.
 iso_make_efi() {
+set -x
 	fn iso_make_efi
 	req=(workdir efi_work strapdir)
 	ckreq || return 1
@@ -204,7 +205,7 @@ EOF
 	sudo rsync -avx "$efi_work"/boot binary/
 	sudo rsync -avx "$efi_work"/efi  binary/
 	popd
-
+set +x
 }
 
 
@@ -309,14 +310,15 @@ rm -f /var/lib/dbus/machine-id
 # echo "needs_root_rights=yes" >> /etc/X11/Xwrapper.config
 
 # Disable contrib and non-free after installing firmware.
-sed -i 's/ contrib//g' /etc/apt/sources.list
-sed -i 's/ non-free//g' /etc/apt/sources.list
+#sed -i 's/ contrib//g' /etc/apt/sources.list
+#sed -i 's/ non-free-firmware//g' /etc/apt/sources.list
 
-## Disable updates
-sed -i '/-updates/s/^/## /g' /etc/apt/sources.list
+## Disable proposed-updates
+#sed -i '/-proposed-updates/s/^/#/g' /etc/apt/sources.list
 
 ## replace pkgmaster with deb.devuan.org
-sed -i 's/pkgmaster/deb/g'
+sed -i 's/pkgmaster/deb/g' /etc/apt/sources.list
+apt update
 
 # for amd64 only at this time (for bios/uefi compat)
 if ls /boot | grep amd64 ; then
@@ -324,12 +326,18 @@ if ls /boot | grep amd64 ; then
 	apt-get download grub-efi-ia32
 fi
 
+# download firmware packages
+mkdir /firmware
+cd /firmware
+apt download atmel-firmware bluez-firmware dahdi-firmware-nonfree firmware-amd-graphics firmware-atheros firmware-bnx2 firmware-bnx2x firmware-brcm80211 firmware-cavium firmware-intel-sound firmware-iwlwifi firmware-libertas firmware-linux-free firmware-linux-nonfree firmware-misc-nonfree firmware-myricom firmware-netxen firmware-qlogic firmware-realtek firmware-ti-connectivity firmware-zd1211
+cd -
+
 ## insert  service boot_beep
 insserv boot_beep
 
 ##  Configure framebuffer
-setcap 'cap_sys_tty_config+ep' /usr/bin/fbterm                    
-chmod u+s /usr/bin/fbterm   
+setcap 'cap_sys_tty_config+ep' /usr/bin/fbterm
+chmod u+s /usr/bin/fbterm
 
 ## Make initramfs
 

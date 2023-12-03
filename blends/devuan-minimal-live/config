@@ -6,10 +6,10 @@ arrs+=(custom_deb_packages)
 
 blend_name="devuan-minimal-live"
 
-release="chimaera"
-version="4.0.0"
+release="daedalus"
+version="5.0.0"
 mirror="http://deb.devuan.org/merged"
-section="main contrib non-free"
+section="main non-free-firmware"
 
 username="devuan"
 userpass="devuan"

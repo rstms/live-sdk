@@ -128,12 +128,13 @@ menu title devuan-live boot menu
 timeout 70
 menu background /isolinux/splash.png
 
-menu color title	* #FFFFFFFF *
+menu color title	* #CFE1F2 *
 menu color border	* #00000000 #00000000 none
-menu color sel         * #ffffff #1E4E6E *
-menu color hotsel      1;7;37;40 #DCDDDE #1E4E6E *
-menu color tabmsg	* #DCDDDE #00000000 *
-menu color cmdline 0 #DCDDDE #00000000
+menu color sel         * #ffffff #005FBF none
+menu color hotsel      1;7;37;40 #CFE1F2 #005FBF *
+menu color unsel       * #CFE1F2 #00000000 *
+menu color tabmsg	* #CFE1F2 #00000000 *
+menu color cmdline 0 #CFE1F2 #00000000
 menu color help		37;40 #ffdddd00 #00000000 none
 menu vshift 9
 menu rows 12
@@ -187,6 +188,7 @@ EOF
 # uefi code borrowed and adapted from David Hare, who borrowed and adapted it
 # from similar scripts by Colin Watson and Patrick J. Volkerding.
 iso_make_efi() {
+set -x
 	fn iso_make_efi
 	req=(workdir efi_work strapdir)
 	ckreq || return 1
@@ -296,6 +298,7 @@ EOF
 	sudo rsync -avx "$efi_work"/boot binary/
 	sudo rsync -avx "$efi_work"/efi  binary/
 	popd
+set -x
 }
 
 iso_write_grub_cfg() {
@@ -388,14 +391,20 @@ rm -f /vmlinuz.old
 rm -f /initrd.img.old
 
 # Disable contrib and non-free after installing firmware.
-sed -i 's/contrib//g' /etc/apt/sources.list
-sed -i 's/non-free//g' /etc/apt/sources.list
+#sed -i 's/contrib//g' /etc/apt/sources.list
+#sed -i 's/non-free-firmware//g' /etc/apt/sources.list
 
 # for amd64 only at this time
 if ls /boot | grep amd64 ; then
 	apt-get download grub-pc
 	apt-get download grub-efi-ia32
 fi
+
+# download firmware packages
+mkdir /firmware
+cd /firmware
+apt download atmel-firmware bluez-firmware dahdi-firmware-nonfree firmware-amd-graphics firmware-atheros firmware-bnx2 firmware-bnx2x firmware-brcm80211 firmware-cavium firmware-intel-sound firmware-iwlwifi firmware-libertas firmware-linux-free firmware-linux-nonfree firmware-misc-nonfree firmware-myricom firmware-netxen firmware-qlogic firmware-realtek firmware-ti-connectivity firmware-zd1211
+cd -
 
 ##### this should be temporary
 #if dpkg -l lightdm ; then
@@ -412,11 +421,17 @@ chown 1000:1000 /home/${username}/package_list
 
 # Enable encryption (e.g. for live-usb with persistence)
 #sed -i 's/#CRYPTSETUP=/CRYPTSETUP=y/' /etc/cryptsetup-initramfs/conf-hook
-CRYPTSETUP=y update-initramfs -u -k all
+# This does nothing different - make sure cryptsetup-initramfs is installed.
+#CRYPTSETUP=y update-initramfs -u -k all
+
+# Replace build-host's name with localhost in /etc/mailname
+echo localhost > /etc/mailname
 
 # Change sources.list to use deb.devuan.org
 sed -i 's/pkgmaster/deb/g' /etc/apt/sources.list
 
+## Disable proposed-updates
+sed -i '/-proposed-updates/s/^/#/g' /etc/apt/sources.list
 apt-get update
 apt-get clean
 updatedb
