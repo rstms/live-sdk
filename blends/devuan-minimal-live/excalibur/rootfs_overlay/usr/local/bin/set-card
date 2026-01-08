@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# set-card
+
+#set -x
+cardname="$1"
+
+# check for an argument or exit
+if [ -z "$cardname" ] ; then
+	echo -e " Usage:\n $0 <sound-card-id>"
+	exit 0
+fi
+
+# check if /etc/asound.conf exists and contains card number.
+# Entries without number cause aplay to fail.
+if [ -f /etc/asound.conf ] ; then
+	grep -q '[[:digit:]]' /etc/asound.conf || \
+	rm -f /etc/asound.conf
+fi
+
+function do_edit {
+	# edit configs and restart services
+	rm -f /etc/asound.conf
+	sed -i '/ALSA_CARD=/d' /etc/default/espeakup
+	echo "ALSA_CARD=${cardname}" >> /etc/default/espeakup
+	/etc/init.d/espeakup restart
+
+	if [ -n "$cardnum" ] ; then
+		echo "defaults.pcm.card $cardnum
+defaults.ctl.card $cardnum" > /etc/asound.conf
+		/etc/init.d/alsa-utils restart >/dev/null
+	fi
+}
+
+# if argument is a number, check that the card number exists
+if echo "$cardname" | grep '[[:digit:]]' ; then
+	if ! [ -e /proc/asound/card"${cardname}" ] ; then
+		echo "No such card"
+		exit 1
+	else
+		cardnum="$cardname"
+		echo "Card number is $cardnum"
+		do_edit
+	fi
+else
+	# if argument is a name, check that the card name exists
+	# and find its number
+	if ! aplay -l | grep -q "$cardname" ; then
+		echo "No such card"
+		exit 1
+	else
+		cardnum=$(aplay -l | grep -m 1 "$cardname" | cut -d" " -f2 | tr  -d ':')
+		echo "Card number is $cardnum"
+		do_edit
+	fi
+fi
+
+
+exit 0

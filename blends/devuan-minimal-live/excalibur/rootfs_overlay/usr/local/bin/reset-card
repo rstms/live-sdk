@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# reset-card
+
+#set -x
+
+sed -i '/ALSA_CARD=/d' /etc/default/espeakup
+echo '#ALSA_CARD=0' >> /etc/default/espeakup
+rm -f /etc/asound.conf
+/etc/init.d/espeakup restart
+
+exit 0

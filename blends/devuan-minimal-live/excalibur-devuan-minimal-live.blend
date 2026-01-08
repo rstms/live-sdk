@@ -1,0 +1,467 @@
+##!/usr/bin/env zsh
+# Copyright (c) 2017 Dyne.org Foundation
+# live-sdk is written and maintained by Ivan J. <parazyd@dyne.org>
+#
+# This file is part of live-sdk
+# devuan-minimal-live.blend is maintained by KatolaZ <katolaz@freaknet.org>
+#
+# This source code is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This software is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this source code. If not, see <http://www.gnu.org/licenses/>.
+
+BLENDPATH="${BLENDPATH:-$(dirname $0)}"
+
+source "$BLENDPATH/config"
+
+blend_release_path="$BLENDPATH/$release/"
+blend_scripts="${blend_release_path}/scripts"
+
+###source $BLENDPATH/$release/devuan-minimal-live.release
+
+blend_preinst() {
+	fn blend_preinst
+	req=(blend_name username userpass)
+	ckreq || return 1
+
+	notice "executing $blend_name preinst"
+
+    cat <<EOF | sudo tee "$strapdir/add-user" >/dev/null
+#!/bin/sh
+set -x
+useradd -s /bin/bash -m "${username}" || exit 1
+echo "${username}:${userpass}" | chpasswd || exit 1
+EOF
+    chroot-script -d add-user || { zerr; return 1; }
+
+    notice "copying blend-specific debs into $R/extra/custom-packages"
+
+    sudo mkdir -p "$strapdir/extra_packages" || { zerr; return 1; }
+    sudo cp -fv "$blend_release_path"/custom_debs/*.deb "$strapdir/extra_packages" || { zerr; return 1; }
+    cat << EOF | sudo tee "$strapdir/install-custpackages" >/dev/null
+#!/bin/sh
+set -x
+cd extra_packages
+dpkg -i *_all.deb *_${arch}.deb
+apt-get -f install
+cd - >/dev/null
+rm -rf extra_packages
+EOF
+    chroot-script -d install-custpackages || { zerr; return 1; }
+}
+
+blend_postinst() {
+	fn blend_postinst
+	req=(strapdir blend_name)
+	ckreq || return 1
+
+	notice "executing $blend_name postinst"
+
+	[[ -n "$MKEFI" ]] && {
+		iso_make_efi
+		iso_write_grub_cfg
+	}
+
+	pushd "$strapdir"
+		sudo rsync -avx --no-o --no-g "$blend_release_path"/rootfs_overlay/* . || { zerr; return 1; }
+		sudo chmod 755 etc/init.d/boot_beep
+
+		# add some basic files to /dev
+sudo mknod -m 622 dev/console c 5 1
+sudo mknod -m 666 dev/null c 1 3
+sudo mknod -m 666 dev/zero c 1 5
+sudo mknod -m 666 dev/ptmx c 5 2
+sudo mknod -m 666 dev/tty c 5 0
+sudo mknod -m 444 dev/random c 1 8
+sudo mknod -m 444 dev/urandom c 1 9
+sudo chown -v root:tty dev/{console,ptmx,tty}
+
+sudo ln -sv /proc/self/fd dev/fd
+sudo ln -sv /proc/self/fd/0 dev/stdin
+sudo ln -sv /proc/self/fd/1 dev/stdout
+sudo ln -sv /proc/self/fd/2 dev/stderr
+sudo ln -sv /proc/kcore dev/core
+sudo mkdir -v dev/shm
+sudo mkdir -v dev/pts
+sudo chmod 1777 dev/shm
+	popd
+
+	blend_finalize || { zerr; return 1 }
+}
+
+iso_write_isolinux_cfg() {
+	fn iso_write_isolinux_cfg "(override)"
+	req=(workdir arch username)
+	ckreq || return 1
+
+	notice "copying isolinux overlay"
+	sudo mkdir -p "$workdir"/binary/{live,isolinux}
+	sudo cp -rav "$blend_release_path"/isolinux_overlay/* "$workdir"/binary/isolinux/
+	sudo cp -av "$blend_release_path"/live-overlay/* "$workdir"/binary/live/
+
+	#[[ -n "$hookscripts" ]] && {
+	#	sudo cp -av "$BLENDPATH"/hooks "$workdir"/binary/live/
+	#}
+}
+
+# create /boot and /efi for uefi.
+# uefi code borrowed and adapted from David Hare, who borrowed and adapted it
+# from similar scripts by Colin Watson and Patrick J. Volkerding.
+iso_make_efi() {
+set -x
+	fn iso_make_efi
+	req=(workdir efi_work strapdir)
+	ckreq || return 1
+
+	notice "creating efi boot files"
+
+	tempdir="$(mktemp -d /tmp/work_temp.XXXX)"
+	# for initial grub.cfg
+	mkdir -p "$tempdir"/boot/grub
+
+	if [ "$arch" = amd64 ] ; then
+		grubarch="x86_64-efi"
+	elif [ "$arch" = i386 ] ; then
+		grubarch="i386-efi"
+	fi
+
+	cat >"$tempdir"/boot/grub/grub.cfg <<EOF
+search --file --set=root /isolinux/isolinux.cfg
+set prefix=(\$root)/boot/grub
+source \$prefix/${grubarch}/grub.cfg
+EOF
+
+	mkdir -p "$efi_work"
+	pushd "$efi_work"
+
+	# start with empty directories.
+	rm -rf boot; mkdir -p boot/grub/${grubarch}
+	rm -rf efi ; mkdir -p efi/boot
+
+	# second grub.cfg file
+	for i in $(find $strapdir/usr/lib/grub/${grubarch} -name 'part_*.mod'); do
+		print "insmod $(basename $i)" >> boot/grub/${grubarch}/grub.cfg
+	done
+
+	# Additional modules so we don't boot in blind mode.
+	# I don't know which ones are really needed.
+	efimods=(
+		efi_gop
+		efi_uga
+		ieee1275_fb
+		vbe
+		vga
+		video_bochs
+		video_cirrus
+		jpeg
+		png
+		gfxterm
+	)
+	for i in $efimods; do
+		print "insmod $i" >> boot/grub/${grubarch}/grub.cfg
+	done
+
+	print "source /boot/grub/grub.cfg" >> boot/grub/${grubarch}/grub.cfg
+
+	pushd "$tempdir"
+		# make a tarred "memdisk" to embed in the grub image
+		tar -cvf memdisk boot
+
+		# make the grub image
+		grub-mkimage -O "x86_64-efi" -m "memdisk" -o "bootx64.efi" \
+			-p '(memdisk)/boot/grub' \
+				search iso9660 configfile normal memdisk tar cat \
+				part_msdos part_gpt fat ext2 ntfs ntfscomp hfsplus \
+				chain boot linux
+	
+		grub-mkimage -O "i386-efi" -m "memdisk" -o "bootia32.efi" \
+			-p '(memdisk)/boot/grub' \
+				search iso9660 configfile normal memdisk tar cat \
+				part_msdos part_gpt fat ext2 ntfs ntfscomp hfsplus \
+				chain boot linux
+	popd
+
+	# copy the grub image to efi/boot (to go later in the device's root)
+	cp "$tempdir"/bootx64.efi efi/boot
+	cp "$tempdir"/bootia32.efi efi/boot
+
+	# Do the boot image "boot/grub/efiboot.img"
+	dd if=/dev/zero of=boot/grub/efiboot.img bs=1K count=1440
+	mkfs.vfat -F 12 boot/grub/efiboot.img
+
+	sudo mkdir img-mnt
+	sudo mount -o loop boot/grub/efiboot.img img-mnt
+	sudo mkdir -p img-mnt/efi/boot
+	sudo cp "$tempdir"/bootx64.efi img-mnt/efi/boot/
+	sudo cp "$tempdir"/bootia32.efi img-mnt/efi/boot/
+
+	# copy modules and font
+	cp -r "$strapdir/usr/lib/grub/${grubarch}"/* "boot/grub/${grubarch}/"
+
+	# if this doesn't work try another font from the same place (grub's default, unicode.pf2, is much larger)
+	# Either of these will work, and they look the same to me. Unicode seems to work with qemu. -fsr
+	# cp /usr/share/grub/ascii.pf2 boot/grub/font.pf2
+	cp $strapdir/usr/share/grub/unicode.pf2 boot/grub/font.pf2
+
+	# copy splash - minlive bg looks bad. Also removed background line from grub.cfg below.
+	#sudo cp -rav "$blend_release_path"/isolinux_overlay/splash.png boot/grub/splash.png
+
+	# Cleanup efi temps
+	sudo umount img-mnt
+	sudo rmdir img-mnt
+	rm -rf "$tempdir"
+
+	popd
+
+
+	# Copy efi files to iso
+	pushd $workdir
+	sudo rsync -avx "$efi_work"/boot binary/
+	sudo rsync -avx "$efi_work"/efi  binary/
+	popd
+set +x
+}
+
+
+## UNUSED
+iso_write_grub_cfg() {
+	fn iso_write_grub_cfg "(override)"
+	req=(workdir arch username)
+	ckreq || return 1
+
+	notice "writing grub configuration"
+
+	# Do the main grub.cfg (which gets loaded last):
+	cat <<EOF | sudo tee ${workdir}/binary/boot/grub/grub.cfg
+if loadfont $prefix/font.pf2 ; then
+  set gfxmode=640x480
+  insmod efi_gop
+  insmod efi_uga
+  insmod video_bochs
+  insmod video_cirrus
+  insmod gfxterm
+  insmod jpeg
+  insmod png
+  terminal_output gfxterm
+fi
+
+
+set menu_color_normal=white/black
+set menu_color_highlight=dark-gray/white
+set timeout=6
+play 480 440 1
+
+menuentry "Devuan Live Minimal (std)" {
+    set gfxpayload=keep
+    linux   /live/vmlinuz boot=live noautologin vga=auto username=devuan
+    initrd  /live/initrd.img
+}
+
+menuentry "Devuan Live Minimal (access)" {
+	set gfxpayload=keep
+	linux /live/vmlinuz boot=live noautologin 4 vga=normal username=devuan
+	initrd /live/initrd.img
+}
+
+menuentry "Devuan Live Minimal (std-toram)" {
+    set gfxpayload=keep
+    linux   /live/vmlinuz boot=live noautologin vga=auto toram username=devuan
+    initrd  /live/initrd.img
+}
+
+menuentry "Devuan Live Minimal (access-toram)" {
+	set gfxpayload=keep
+	linux /live/vmlinuz boot=live noautologin 4 vga=normal toram username=devuan
+	initrd /live/initrd.img
+}
+
+menuentry "Devuan Live Minimal (no probe)" {
+    set gfxpayload=keep
+    linux   /live/vmlinuz boot=live noapic noapm nodma nomce nolapic nosmp vga=auto username=devuan
+    initrd  /live/initrd.img
+}
+
+menuentry "Memory test (memtest86+x64.efi)" {
+	linux /live/memtest86+x64.efi
+}
+
+menuentry "Memory test (memtest86+x64.bin)" {
+        linux /live/memtest86+x64.bin
+}
+
+EOF
+}
+
+## put the "create_initrd.sh" script
+
+##func
+put_create_initrd(){
+
+#	sudo cp ${blend_scripts}/create_initrd.sh ${strapdir}/ >/dev/null
+
+	## Now we make it executable
+#	sudo chmod 755 ${strapdir}/create_initrd.sh
+}
+
+## put the "finalize" script, that does the final work
+
+## func
+put_finalize(){
+
+	cat <<EOF | sudo tee ${strapdir}/finalize >/dev/null
+#!/bin/sh
+set -x
+## permissions
+for i in cdrom floppy audio dip video plugdev netdev lpadmin scanner; do
+	gpasswd -a ${username} \$i
+done
+
+chsh -s "${default_shell}" ${username}
+chown -R 1000:1000 /home/${username}
+
+rm -f /etc/fstab
+rm -f /etc/popularity-contest.conf
+rm -f /var/lib/dbus/machine-id
+
+# For ascii if no display manager is used. Maybe this should have a
+# contitional that's turned on/off in the config?
+# echo "needs_root_rights=yes" >> /etc/X11/Xwrapper.config
+
+# Disable contrib and non-free after installing firmware.
+#sed -i 's/ contrib//g' /etc/apt/sources.list
+#sed -i 's/ non-free-firmware//g' /etc/apt/sources.list
+
+## Disable proposed-updates
+#sed -i '/-proposed-updates/s/^/#/g' /etc/apt/sources.list
+
+# Replace build-host's name with localhost in /etc/mailname
+echo localhost > /etc/mailname
+
+## replace pkgmaster with deb.devuan.org
+sed -i 's/pkgmaster/deb/g' /etc/apt/sources.list
+apt update
+
+## hack to reinstall live-config to populate /lib/live/config
+#apt-get -y reinstall live-boot live-boot-initramfs-tools live-config live-config-sysvinit
+#apt-get -y install logrotate rsyslog cron cron-daemon-common
+
+# for amd64 only at this time (for bios/uefi compat)
+if ls /boot | grep amd64 ; then
+	apt-get download grub-pc
+	apt-get download grub-efi-ia32
+fi
+
+# download firmware packages
+mkdir /firmware
+cd /firmware
+apt download atmel-firmware bluez-firmware dahdi-firmware-nonfree firmware-amd-graphics firmware-atheros firmware-bnx2 firmware-bnx2x firmware-brcm80211 firmware-cavium firmware-intel-sound firmware-iwlwifi firmware-libertas firmware-linux-free firmware-linux-nonfree firmware-misc-nonfree firmware-myricom firmware-netxen firmware-qlogic firmware-realtek firmware-ti-connectivity firmware-zd1211
+cd -
+
+# temporary for testing?
+apt-get download mdadm
+
+# Add the excluded logrotate. (Temporary?)
+apt-get -y install logrotate rsyslog
+
+## insert  service boot_beep
+insserv boot_beep
+
+##  Configure framebuffer
+setcap 'cap_sys_tty_config+ep' /usr/bin/fbterm
+chmod u+s /usr/bin/fbterm
+
+## Make initramfs
+
+#SLIM_INITRD=initrd_devuan.img
+#MICRO_INITRD=/boot/initrd.img
+#INITRD_COMPR="xz --check=crc32 --x86 -6 -"
+
+
+#/create_initrd.sh /initrd.img /boot/\${SLIM_INITRD} \
+#    "\${INITRD_COMPR}" \${MICRO_INITRD}
+
+#rm -f $(realpath /initrd.img)
+#rm -f $(realpath /initrd.img.old)
+
+#echo "====> Content of /boot before rm:"
+
+#ls /boot
+
+#rm -f /initrd.img
+#rm -f /initrd.img.old
+
+#KERN_ORIG=\$(ls /boot/initrd.img-* | head -1 | cut -d "-" -f 2-)
+
+#rm -f /boot/initrd.img-*
+
+
+#echo "====> Content of /boot AFTER rm:"
+
+#ls /boot
+
+#ln -s \${MICRO_INITRD} /initrd.img
+
+
+
+##rm create_initrd.sh
+#rm /create_initrd.sh
+
+## package list
+dpkg -l | awk '/^ii/ { print \$2 " " \$3 }' > /home/${username}/package_list
+
+##apt-get update
+apt-get clean
+rm /var/cache/apt/*.bin
+updatedb
+
+#rm -f /initrd.img
+#rm -f /initrd.img.old
+#rm -f /boot/initrd.img-*
+#ln -s \${MICRO_INITRD} /initrd.img
+
+#ln -s \${MICRO_INITRD} /boot/initrd.img-\${KERN_ORIG}
+
+
+EOF
+
+##	cp ${strapdir}/finalize ${strapdir}/finalize.bak
+
+}
+
+## func
+# put_packages(){
+
+# 	sudo cp -a "$R/extra/custom-packages/" ${strapdir} 
+# }
+
+
+blend_finalize() {
+	fn blend_finalize
+	req=(strapdir username default_shell)
+	ckreq || return 1
+
+	#put_create_initrd
+	#put_packages
+
+	put_finalize
+
+	#chroot-script -d finalize || zerr
+	chroot-script finalize || zerr
+
+#	printf "copying ${strapdir}/boot/initrd.img to ${workdir}/binary/live/..."
+#	sudo cp -L ${strapdir}/boot/initrd.img ${workdir}/binary/live/
+	printf "done\n"
+#	# memtest gets copied with live-overlay
+#	printf "copying memtest86 to /binary/live\n"
+# 	sudo cp ${strapdir}/boot/memtest86+.bin ${workdir}/binary/live/memtest
+	printf "done\n"
+	echo "done"
+}
