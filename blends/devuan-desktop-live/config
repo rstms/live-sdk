@@ -4,10 +4,10 @@
 vars+=(username userpass default_shell mkefi grubversion hookscripts)
 arrs+=(custom_deb_packages)
 
-blend_name="devuan-desktop-live_"
+blend_name="devuan-desktop-live"
 release="excalibur"
-version="6.1-$(date +%F_%H%M)"
-#version="5.0-memtesttest-$(date +%F)"
+version="6.1.1"
+#version="7-preview_$(date +%F)"
 username="devuan"
 userpass="devuan"
 default_shell="/bin/bash"
