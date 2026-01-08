@@ -5,8 +5,9 @@ vars+=(username userpass default_shell mkefi grubversion hookscripts)
 arrs+=(custom_deb_packages)
 
 blend_name="devuan-desktop-live_"
-release="daedalus"
-version="5.0.0"
+release="excalibur"
+version="6.1-$(date +%F_%H%M)"
+#version="5.0-memtesttest-$(date +%F)"
 username="devuan"
 userpass="devuan"
 default_shell="/bin/bash"
@@ -22,9 +23,11 @@ case "$arch" in
 	#i386)  extra_packages+=(linux-image-686) ;;
 
 	# for desktop-live
-	i386)  extra_packages+=(linux-image-686-pae) ;;
+	i386)  extra_packages+=(linux-image-686-pae)
+		memtestarch="ia32" ;;
 
-	amd64) extra_packages+=(linux-image-amd64) ;;
+	amd64) extra_packages+=(linux-image-amd64)
+		memtestarch="x64" ;;
 esac
 
 
@@ -36,9 +39,9 @@ efi_work="$BLENDPATH/${release}/efi-files"
 grubversion="grub-efi-amd64"
 
 # Uncomment for amd64
-base_packages+=(grub-efi-amd64-bin grub-efi-ia32-bin)
+base_packages+=(grub-efi-amd64-bin grub-efi-ia32-bin shim-signed)
 
-mirror="http://deb.devuan.org/merged"
+mirror="http://pkgmaster.devuan.org/merged"
 section="main non-free-firmware"
 
 

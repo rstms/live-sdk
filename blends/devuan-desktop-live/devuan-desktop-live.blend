@@ -25,6 +25,100 @@ source "$BLENDPATH/config"
 blend_release_path="$BLENDPATH/$release/"
 blend_scripts="${blend_release_path}/scripts"
 
+conf_print_sourceslist() {
+	fn conf_print_sourceslist
+	req=(mirror release section)
+	ckreq || return 1
+
+	cat <<EOF
+# Package repositories
+deb ${mirror} ${release} ${section}
+deb ${mirror} ${release}-updates ${section}
+deb ${mirror} ${release}-security ${section}
+#deb ${mirror} ${release}-backports ${section}
+
+# Source repositories
+#deb-src ${mirror} ${release} ${section}
+#deb-src ${mirror} ${release}-updates ${section}
+#deb-src ${mirror} ${release}-security ${section}
+#deb-src ${mirror} ${release}-backports ${section}
+EOF
+}
+
+bootstrap_complete_base()
+{
+	fn bootstrap_complete_base "$*"
+	req=(R os arch strapdir LIBPATH release mirror)
+	ckreq || return 1
+
+	notice "Bootstrapping: ${os}:${arch} base"
+
+	export LANG=C
+	export LC_ALL=C
+	export DEBIAN_FRONTEND=noninteractive
+	export SOURCE_DATE_EPOCH=1610550434
+
+	bootstrap_cpio_stage3="$R/tmp/bootstrap-${os}-${arch}-stage3.cpio.gz"
+	bootstrap_cpio_stage4="$R/tmp/bootstrap-${os}-${arch}-stage4.cpio.gz"
+
+	if [[ -n "$CPIO_STAGE4" && -f "$bootstrap_cpio_stage4" ]]; then
+		act "Using the existing stage4 bootstrap cpio archive..."
+		bootstrap_cpio_unpack "$bootstrap_cpio_stage4" "$strapdir" || {
+			die "Failed to extract cpio archive"
+			return 1
+		}
+		bootstrap_stage4
+		return
+	elif [[ -f "$bootstrap_cpio_stage3" ]]; then
+		act "Using the existing stage3 bootstrap cpio archive..."
+		bootstrap_cpio_unpack "$bootstrap_cpio_stage3" "$strapdir" || {
+			die "Failed to extract cpio archive"
+			return 1
+		}
+		bootstrap_stage4 || { zerr; return 1; }
+		if [[ -n "$CPIO_STAGE4" ]]; then
+			bootstrap_cpio_pack "$bootstrap_cpio_stage4" || { zerr; return 1; }
+		fi
+		return
+	fi
+
+	notice "Running stage1 debootstrap"
+#		--keyring="$LIBPATH/extra/devuan-keyring/keyrings/devuan-archive-keyring.gpg" \
+#		--include=devuan-keyring,wget,ca-certificates \
+	sudo debootstrap \
+		--foreign \
+		--exclude=logrotate,cron,cron-daemon-common \
+		--arch "$arch" "$release" "$strapdir" "$mirror" || { zerr; return 1; }
+
+	if [[ "$arch" =~ "^arm.." ]]; then
+		qemu_install_user "$strapdir" || { zerr; return 1; }
+	fi
+
+	notice "Running stage2 debootstrap"
+
+	sudo chroot "$strapdir" /debootstrap/debootstrap --second-stage || { zerr; return 1; }
+
+	# TODO: sys config as function
+	conf_print_fstab       | sudo tee "$strapdir/etc/fstab" >/dev/null
+	conf_print_hostname    | sudo tee "$strapdir/etc/hostname" >/dev/null
+	conf_print_hosts       | sudo tee "$strapdir/etc/hosts" >/dev/null
+	conf_print_netifaces   | sudo tee "$strapdir/etc/network/interfaces" >/dev/null
+	conf_print_resolvconf  | sudo tee "$strapdir/etc/resolv.conf" >/dev/null
+	conf_print_sourceslist | sudo tee "$strapdir/etc/apt/sources.list" >/dev/null
+
+	blend_bootstrap_setup || { zerr; return 1; }
+
+	bootstrap_stage3 || { zerr; return 1; }
+	bootstrap_cpio_pack "$bootstrap_cpio_stage3" || { zerr; return 1; }
+
+	bootstrap_stage4 || { zerr; return 1; }
+	if [[ -n "$CPIO_STAGE4" ]]; then
+		bootstrap_cpio_pack "$bootstrap_cpio_stage4" || { zerr; return 1; }
+	fi
+
+	return
+}
+
 blend_preinst() {
 	fn blend_preinst
 	req=(blend_name username userpass)
@@ -39,6 +133,7 @@ echo "${username}:${userpass}" | chpasswd || exit 1
 EOF
     chroot-script -d add-user || { zerr; return 1; }
 
+########## UNCOMMENTED TO TEST NEW DESKTOP-BASE PACKAGE 2025-04-02
 #    notice "copying blend-specific debs into $R/extra/custom-packages"
 #
 #    sudo mkdir -p "$strapdir/extra_packages" || { zerr; return 1; }
@@ -46,7 +141,7 @@ EOF
 #    cat << EOF | sudo tee "$strapdir/install-custpackages" >/dev/null
 ##!/bin/sh
 #cd extra_packages
-#dpkg -i *_all.deb *_${arch}.deb
+#dpkg -i *.deb 	### this fails if no matching pkg ->  *_${arch}.deb
 #apt-get -f install
 #cd - >/dev/null
 #rm -rf extra_packages
@@ -89,7 +184,7 @@ sudo mkdir -v dev/pts
 sudo chmod 1777 dev/shm
 	popd
 
-	blend_finalize || zerr
+blend_finalize || zerr
 }
 
 # Set lvm not to use udev in initramfs to avoid boot delays.
@@ -116,8 +211,14 @@ edit_initramfs () {
 
 iso_write_isolinux_cfg() {
 	fn iso_write_isolinux_cfg "(override)"
-	req=(workdir arch username)
+	req=(workdir arch username memtestarch)
 	ckreq || return 1
+
+        if [ "$arch" = amd64 ] ; then
+               memtestarch="x64"
+        elif [ "$arch" = i386 ] ; then
+               memtestarch="ia32"
+        fi
 
 	notice "writing isolinux configuration"
 
@@ -138,8 +239,8 @@ menu color cmdline 0 #CFE1F2 #00000000
 menu color help		37;40 #ffdddd00 #00000000 none
 menu vshift 9
 menu rows 12
-#menu helpmsgrow 15
-#menu cmdlinerow 25
+menu helpmsgrow 15
+menu cmdlinerow 16
 menu timeoutrow 16
 menu tabmsgrow 14
 menu tabmsg Press ENTER to boot or TAB to edit a menu entry
@@ -149,26 +250,30 @@ label live
 	menu label ${os}-live (${arch})
 	menu default
 	linux /live/vmlinuz
-	append initrd=/live/initrd.img boot=live username=${username} apparmor=0 
+	append initrd=/live/initrd.img boot=live username=${username} nottyautologin apparmor=0
 
 label lang
 	menu label Other language (TAB to edit)
 	linux /live/vmlinuz
-	append initrd=/live/initrd.img boot=live username=${username} apparmor=0 locales=it_IT.UTF-8 keyboard-layouts=it 
+	append initrd=/live/initrd.img boot=live username=${username} nottyautologin apparmor=0 locales=it_IT.UTF-8 keyboard-layouts=it 
 
 label toram
 	menu label ${os}-live (${arch}) (load to RAM)
 	linux /live/vmlinuz
-	append initrd=/live/initrd.img boot=live username=${username} toram apparmor=0 
+	append initrd=/live/initrd.img boot=live username=${username} toram  nottyautologin apparmor=0
 
 label failsafe
 	menu label ${os}-live (${arch}) (failsafe)
-	kernel /live/vmlinuz noapic noapm nodma nomce nolapic nosmp nomodeset vga=normal username=${username} apparmor=0 
+	kernel /live/vmlinuz noapic noapm nodma nomce nolapic nosmp nomodeset vga=normal username=${username} noautologin apparmor=0
 	append initrd=/live/initrd.img boot=live
 
-label memtest
-	menu label Memory test
-	kernel /live/memtest
+label memtest-efi
+	menu label Memory test (memtest86+x64.efi)
+	linux /live/memtest86+${memtestarch}.efi
+
+label memtest-bin
+        menu label Memory test (memtest86+x64.bin)
+        linux /live/memtest86+${memtestarch}.bin
 
 endtext
 EOF
@@ -176,7 +281,7 @@ EOF
 	notice "copying isolinux overlay"
 	sudo mkdir -p "$workdir"/binary/{live,isolinux}
 	sudo cp -rav "$blend_release_path"/isolinux-overlay/* "$workdir"/binary/isolinux/
-#	sudo cp -av "$blend_release_path"/live-overlay/* "$workdir"/binary/live/
+	sudo cp -av "$blend_release_path"/live-overlay/* "$workdir"/binary/live/
 #	sudo cp -av "$blend_release_path"/docs "$workdir"/binary/
 	#edit_initramfs
 #	[[ -n "$hookscripts" ]] && {
@@ -253,6 +358,7 @@ EOF
 				search iso9660 configfile normal memdisk tar cat \
 				part_msdos part_gpt fat ext2 ntfs ntfscomp hfsplus \
 				chain boot linux
+
 		grub-mkimage -O "i386-efi" -m "memdisk" -o "bootia32.efi" \
 			-p '(memdisk)/boot/grub' \
 				search iso9660 configfile normal memdisk tar cat \
@@ -329,30 +435,34 @@ set timeout=6
 
 menuentry "${os}-live (${arch})" {
     set gfxpayload=keep
-    linux   /live/vmlinuz boot=live username=$username apparmor=0 
+    linux   /live/vmlinuz boot=live username=$username nottyautologin apparmor=0
     initrd  /live/initrd.img
 }
 
 menuentry "Other language" {
 	set gfxpayload=keep
-	linux /live/vmlinuz boot=live username=$username apparmor=0 locales=it_IT.UTF-8 keyboard-layouts=it 
+	linux /live/vmlinuz boot=live username=$username nottyautologin apparmor=0 locales=it_IT.UTF-8 keyboard-layouts=it 
 	initrd /live/initrd.img
 }
 
 menuentry "${os}-live (load to RAM)" {
     set gfxpayload=keep
-    linux   /live/vmlinuz boot=live username=$username toram apparmor=0 
+    linux   /live/vmlinuz boot=live username=$username toram nottyautologin apparmor=0
     initrd  /live/initrd.img
 }
 
 menuentry "${os}-live (failsafe)" {
     set gfxpayload=keep
-    linux   /live/vmlinuz boot=live username=$username noapic noapm nodma nomce nolapic nosmp vga=normal apparmor=0 
+    linux   /live/vmlinuz boot=live username=$username noapic noapm nodma nomce nolapic nosmp vga=normal noautologin apparmor=0 
     initrd  /live/initrd.img
 }
 
-menuentry "Memory test" {
-	linux16 /live/memtest86+.bin
+menuentry "Memory test (memtest86+x64.efi)" {
+	linux /live/memtest86+x64.efi
+}
+
+menuentry "Memory test (memtest86+x64.bin)" {
+	linux /live/memtest86+x64.bin
 }
 
 EOF
@@ -400,10 +510,17 @@ if ls /boot | grep amd64 ; then
 	apt-get download grub-efi-ia32
 fi
 
+# temporary for testing?
+apt-get download mdadm
+
 # download firmware packages
 mkdir /firmware
 cd /firmware
-apt download atmel-firmware bluez-firmware dahdi-firmware-nonfree firmware-amd-graphics firmware-atheros firmware-bnx2 firmware-bnx2x firmware-brcm80211 firmware-cavium firmware-intel-sound firmware-iwlwifi firmware-libertas firmware-linux-free firmware-linux-nonfree firmware-misc-nonfree firmware-myricom firmware-netxen firmware-qlogic firmware-realtek firmware-ti-connectivity firmware-zd1211
+apt-get download atmel-firmware bluez-firmware dahdi-firmware-nonfree firmware-amd-graphics \
+    firmware-atheros firmware-bnx2 firmware-bnx2x firmware-brcm80211 firmware-cavium \
+    firmware-intel-sound firmware-iwlwifi firmware-libertas firmware-linux-free firmware-linux-nonfree \
+    firmware-misc-nonfree firmware-myricom firmware-netxen firmware-qlogic firmware-realtek \
+    firmware-ti-connectivity firmware-zd1211
 cd -
 
 ##### this should be temporary
@@ -414,6 +531,15 @@ cd -
 #if dpkg -l grub-efi-amd64-signed ; then
 #	apt-get -y remove grub-efi-amd64-signed
 #fi
+
+# Remove xfce-polkit
+apt-get -y --purge remove xfce-polkit
+
+# Add the excluded logrotate. (Temporary?)
+apt-get -y install logrotate rsyslog
+
+# Reinstall desktop-base for background image link to work.
+apt-get --reinstall install desktop-base
 
 ## package list
 dpkg -l | awk '/^ii/ { print \$2 " " \$3 }' > /home/${username}/package_list
