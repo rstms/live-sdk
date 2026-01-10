@@ -7,7 +7,6 @@ arrs+=(custom_deb_packages)
 blend_name="devuan-desktop-live"
 release="excalibur"
 version="6.1.1"
-#version="7-preview_$(date +%F)"
 username="devuan"
 userpass="devuan"
 default_shell="/bin/bash"

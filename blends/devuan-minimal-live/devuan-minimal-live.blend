@@ -27,6 +27,100 @@ blend_scripts="${blend_release_path}/scripts"
 
 ###source $BLENDPATH/$release/devuan-minimal-live.release
 
+conf_print_sourceslist() {
+        fn conf_print_sourceslist
+        req=(mirror release section)
+        ckreq || return 1
+
+        cat <<EOF
+# Package repositories
+deb ${mirror} ${release} ${section}
+deb ${mirror} ${release}-updates ${section}
+deb ${mirror} ${release}-security ${section}
+#deb ${mirror} ${release}-backports ${section}
+
+# Source repositories
+#deb-src ${mirror} ${release} ${section}
+#deb-src ${mirror} ${release}-updates ${section}
+#deb-src ${mirror} ${release}-security ${section}
+#deb-src ${mirror} ${release}-backports ${section}
+EOF
+}
+
+bootstrap_complete_base()
+{
+	fn bootstrap_complete_base "$*"
+	req=(R os arch strapdir LIBPATH release mirror)
+	ckreq || return 1
+
+	notice "Bootstrapping: ${os}:${arch} base"
+
+	export LANG=C
+	export LC_ALL=C
+	export DEBIAN_FRONTEND=noninteractive
+	export SOURCE_DATE_EPOCH=1610550434
+
+	bootstrap_cpio_stage3="$R/tmp/bootstrap-${os}-${arch}-stage3.cpio.gz"
+	bootstrap_cpio_stage4="$R/tmp/bootstrap-${os}-${arch}-stage4.cpio.gz"
+
+	if [[ -n "$CPIO_STAGE4" && -f "$bootstrap_cpio_stage4" ]]; then
+		act "Using the existing stage4 bootstrap cpio archive..."
+		bootstrap_cpio_unpack "$bootstrap_cpio_stage4" "$strapdir" || {
+			die "Failed to extract cpio archive"
+			return 1
+		}
+		bootstrap_stage4
+		return
+	elif [[ -f "$bootstrap_cpio_stage3" ]]; then
+		act "Using the existing stage3 bootstrap cpio archive..."
+		bootstrap_cpio_unpack "$bootstrap_cpio_stage3" "$strapdir" || {
+			die "Failed to extract cpio archive"
+			return 1
+		}
+		bootstrap_stage4 || { zerr; return 1; }
+		if [[ -n "$CPIO_STAGE4" ]]; then
+			bootstrap_cpio_pack "$bootstrap_cpio_stage4" || { zerr; return 1; }
+		fi
+		return
+	fi
+
+	notice "Running stage1 debootstrap"
+#		--keyring="$LIBPATH/extra/devuan-keyring/keyrings/devuan-archive-keyring.gpg" \
+#		--include=devuan-keyring,wget,ca-certificates \
+	sudo debootstrap \
+		--foreign \
+		--exclude=logrotate,cron,cron-daemon-common \
+		--arch "$arch" "$release" "$strapdir" "$mirror" || { zerr; return 1; }
+
+	if [[ "$arch" =~ "^arm.." ]]; then
+		qemu_install_user "$strapdir" || { zerr; return 1; }
+	fi
+
+	notice "Running stage2 debootstrap"
+
+	sudo chroot "$strapdir" /debootstrap/debootstrap --second-stage || { zerr; return 1; }
+
+	# TODO: sys config as function
+	conf_print_fstab       | sudo tee "$strapdir/etc/fstab" >/dev/null
+	conf_print_hostname    | sudo tee "$strapdir/etc/hostname" >/dev/null
+	conf_print_hosts       | sudo tee "$strapdir/etc/hosts" >/dev/null
+	conf_print_netifaces   | sudo tee "$strapdir/etc/network/interfaces" >/dev/null
+	conf_print_resolvconf  | sudo tee "$strapdir/etc/resolv.conf" >/dev/null
+	conf_print_sourceslist | sudo tee "$strapdir/etc/apt/sources.list" >/dev/null
+
+	blend_bootstrap_setup || { zerr; return 1; }
+
+	bootstrap_stage3 || { zerr; return 1; }
+	bootstrap_cpio_pack "$bootstrap_cpio_stage3" || { zerr; return 1; }
+
+	bootstrap_stage4 || { zerr; return 1; }
+	if [[ -n "$CPIO_STAGE4" ]]; then
+		bootstrap_cpio_pack "$bootstrap_cpio_stage4" || { zerr; return 1; }
+	fi
+
+	return
+}
+
 blend_preinst() {
 	fn blend_preinst
 	req=(blend_name username userpass)
