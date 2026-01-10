@@ -1,0 +1,18 @@
+Setup to build an old release:
+
+1. Move old-blend-configs/<release>.<blend-name>.blend and <release>.config
+and corresponding release directory up one level and remove the release name
+from the two filenames.
+
+For example, daedalus.devuan-desktop-live.blend and daedalus.config
+become devuan-desktop-live.blend and config.
+
+2. Change the symlink live-sdk/extra/syslinux to point to the corresponding
+syslinux directory for the release you want to build.
+
+3. You may need to make some edits in your local copy of libdevuansdk/zlibs or
+copy some functions from zlibs to your blend file.
+
+For example, the excalibur blend file has conf_print_sourceslist() and
+bootstrap_complete_base() to avoid making edits in the shared libraries.
+
